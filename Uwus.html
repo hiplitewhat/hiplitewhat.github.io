@@ -1,1 +1,519 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Don't Wordle Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        
+        :root { --app-height: 100vh; }
 
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #050505;
+            color: #ffffff;
+            overflow: hidden;
+            height: var(--app-height);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .word-grid-cell {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            aspect-ratio: 1 / 1;
+        }
+
+        .cell-pop { animation: cellPop 0.1s ease-out; }
+        @keyframes cellPop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        .key-btn { touch-action: manipulation; }
+        .key-btn:active { transform: scale(0.9); background-color: #3f3f46 !important; }
+        
+        .key-forbidden {
+            opacity: 0.2;
+            background-color: #18181b !important;
+            text-decoration: line-through;
+        }
+
+        .music-pulse { animation: pulse-blue 2s infinite ease-in-out; }
+        @keyframes pulse-blue {
+            0%, 100% { color: #3b82f6; filter: drop-shadow(0 0 2px #3b82f6); }
+            50% { color: #60a5fa; filter: drop-shadow(0 0 8px #3b82f6); }
+        }
+
+        .status-pill {
+            background: linear-gradient(to bottom, #18181b, #09090b);
+            border: 1px solid #27272a;
+        }
+
+        /* Visualizer Bars */
+        .v-bar {
+            width: 3px;
+            background-color: #3b82f6;
+            margin: 0 1px;
+            border-radius: 1px;
+            transition: height 0.05s ease;
+        }
+    </style>
+</head>
+<body class="p-3 select-none">
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="fixed inset-0 z-[500] bg-black flex flex-col items-center justify-center">
+        <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p id="loading-text" class="font-black tracking-widest text-zinc-500 uppercase text-[10px]">Fetching Audio Stream...</p>
+    </div>
+
+    <!-- Header -->
+    <header class="w-full max-w-md flex justify-between items-center py-4 border-b border-zinc-900 shrink-0">
+        <button onclick="toggleHelp()" class="p-2 text-zinc-400 hover:text-white transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>
+        <div class="text-center">
+            <h1 class="text-2xl font-black italic tracking-tighter uppercase leading-none">Don't Wordle</h1>
+            <div id="visualizer" class="h-3 flex items-center justify-center mt-1 opacity-50">
+                <div class="v-bar h-1"></div><div class="v-bar h-2"></div><div class="v-bar h-1"></div><div class="v-bar h-3"></div><div class="v-bar h-1"></div>
+            </div>
+        </div>
+        <div class="flex gap-2">
+             <button id="audio-toggle" onclick="toggleAudio()" class="p-2 rounded-lg transition-all relative">
+                <svg id="audio-icon-off" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-zinc-600"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                <svg id="audio-icon-on" class="hidden music-pulse" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Song Ticker -->
+    <div id="song-ticker" class="w-full max-w-md overflow-hidden h-0 transition-all duration-500 opacity-0 mb-2">
+        <div class="bg-zinc-900/50 rounded-full px-4 py-1 flex items-center gap-2 border border-zinc-800/50">
+            <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+            <span class="text-[9px] font-black uppercase tracking-widest text-zinc-500">Playing: Lo-Fi Chill (NCS/CC)</span>
+        </div>
+    </div>
+
+    <!-- Stats Bar -->
+    <div class="w-full max-w-md flex justify-between status-pill px-5 py-3 rounded-2xl my-4 font-bold text-[11px] shrink-0 shadow-lg">
+        <div class="text-zinc-400 uppercase tracking-wider">Remaining Safe: <span id="safe-count" class="text-white font-black">...</span></div>
+        <div class="text-zinc-400 uppercase tracking-wider">Attempt <span id="attempt-count" class="text-white font-black">1</span>/6</div>
+    </div>
+
+    <!-- Game Grid -->
+    <div id="game-grid" class="flex flex-col gap-2 mb-6 max-w-[320px] w-full shrink-0"></div>
+
+    <div id="toast" class="fixed top-32 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2.5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl z-[100] hidden pointer-events-none text-center"></div>
+
+    <!-- Keyboard -->
+    <div id="keyboard" class="w-full max-w-md pb-6 mt-auto flex flex-col gap-2 shrink-0"></div>
+
+    <!-- Modals -->
+    <div id="game-over-modal" class="fixed inset-0 bg-black/95 z-[400] hidden flex-col items-center justify-center p-8 text-center backdrop-blur-sm">
+        <h2 id="end-title" class="text-7xl font-black italic mb-2 tracking-tighter">SURVIVED</h2>
+        <p class="text-zinc-500 font-bold uppercase tracking-[0.4em] mb-12 text-[10px]">Secret Word: <span id="end-target" class="text-white underline decoration-blue-500 underline-offset-4">...</span></p>
+        <div class="w-full max-w-xs space-y-3">
+             <button onclick="resetGame()" class="bg-white text-black w-full py-5 rounded-2xl font-black text-xl active:scale-95 transition-all shadow-xl hover:bg-zinc-200 uppercase tracking-tighter">Play Again</button>
+             <button id="undo-end-btn" onclick="undoAtEnd()" class="bg-zinc-900 text-zinc-400 w-full py-4 rounded-2xl font-black text-sm active:scale-95 transition-all uppercase tracking-widest border border-zinc-800">Use Life (<span id="undo-count">5</span> left)</button>
+        </div>
+    </div>
+
+    <div id="help-modal" class="fixed inset-0 bg-black/90 z-[400] hidden items-center justify-center p-6 backdrop-blur-md">
+        <div class="bg-zinc-900 p-8 rounded-[2rem] border border-zinc-800 max-w-sm w-full">
+            <h3 class="text-3xl font-black mb-4 uppercase italic text-blue-500 tracking-tighter">The Rules</h3>
+            <div class="space-y-4 text-zinc-400 text-xs leading-relaxed mb-8">
+                <p>Avoid guessing the target word. But you must follow all previous clues:</p>
+                <div class="grid grid-cols-1 gap-2">
+                    <div class="flex items-center gap-3 bg-zinc-950 p-3 rounded-xl border border-zinc-800">
+                        <div class="w-4 h-4 bg-green-600 rounded"></div>
+                        <span>Must use in exact same spot.</span>
+                    </div>
+                    <div class="flex items-center gap-3 bg-zinc-950 p-3 rounded-xl border border-zinc-800">
+                        <div class="w-4 h-4 bg-yellow-500 rounded"></div>
+                        <span>Must include letter elsewhere.</span>
+                    </div>
+                    <div class="flex items-center gap-3 bg-zinc-950 p-3 rounded-xl border border-zinc-800">
+                        <div class="w-4 h-4 bg-zinc-700 rounded"></div>
+                        <span>Must never use letter again.</span>
+                    </div>
+                </div>
+            </div>
+            <button onclick="toggleHelp()" class="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-lg shadow-blue-900/20">Got it</button>
+        </div>
+    </div>
+
+    <script>
+        // --- ADVANCED AUDIO ENGINE ---
+        let audioCtx = null;
+        let analyser = null;
+        let dataArray = null;
+        let isAudioOn = false;
+        let music = new Audio();
+        
+        // Royalty-free tracks from public CDN
+        const PLAYLIST = [
+            'https://cdn.pixabay.com/audio/2022/05/27/audio_1808f3030e.mp3', // Lo-fi study
+            'https://cdn.pixabay.com/audio/2022/01/21/audio_31742c52fd.mp3'  // Chill night
+        ];
+
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            const source = audioCtx.createMediaElementSource(music);
+            source.connect(analyser);
+            analyser.connect(audioCtx.destination);
+            analyser.fftSize = 32;
+            const bufferLength = analyser.frequencyBinCount;
+            dataArray = new Uint8Array(bufferLength);
+            
+            music.loop = true;
+            music.src = PLAYLIST[0];
+            music.crossOrigin = "anonymous";
+            
+            updateVisualizer();
+        }
+
+        function updateVisualizer() {
+            if (!isAudioOn) return requestAnimationFrame(updateVisualizer);
+            
+            analyser.getByteFrequencyData(dataArray);
+            const bars = document.querySelectorAll('.v-bar');
+            bars.forEach((bar, i) => {
+                const val = dataArray[i] / 2;
+                bar.style.height = `${Math.max(2, val)}px`;
+            });
+            requestAnimationFrame(updateVisualizer);
+        }
+
+        function toggleAudio() {
+            initAudio();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            isAudioOn = !isAudioOn;
+            const iconOn = document.getElementById('audio-icon-on');
+            const iconOff = document.getElementById('audio-icon-off');
+            const ticker = document.getElementById('song-ticker');
+            
+            if (isAudioOn) {
+                music.play().catch(e => {
+                    console.error("Autoplay failed:", e);
+                    isAudioOn = false;
+                });
+                iconOn.classList.remove('hidden');
+                iconOff.classList.add('hidden');
+                ticker.style.height = '28px';
+                ticker.style.opacity = '1';
+                sfx.submit();
+            } else {
+                music.pause();
+                iconOn.classList.add('hidden');
+                iconOff.classList.remove('hidden');
+                ticker.style.height = '0';
+                ticker.style.opacity = '0';
+            }
+        }
+
+        // SFX Synthesis (Fast & Lag-free)
+        const sfx = {
+            tap: () => playTone(440, 'sine', 0.1, 0.05),
+            del: () => playTone(220, 'sine', 0.1, 0.05),
+            submit: () => playTone(330, 'triangle', 0.3, 0.08),
+            error: () => { playTone(110, 'sawtooth', 0.2, 0.1); playTone(90, 'sawtooth', 0.4, 0.1); },
+            win: () => { [523, 659, 783, 1046].forEach((f, i) => setTimeout(() => playTone(f, 'sine', 0.5, 0.1), i * 150)); },
+            lose: () => { [300, 200, 150].forEach((f, i) => setTimeout(() => playTone(f, 'sawtooth', 0.6, 0.1), i * 200)); }
+        };
+
+        function playTone(freq, type, duration, volume) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        // --- GAME ENGINE ---
+        const FALLBACK_WORDS = ["STARE", "BRICK", "POWER", "LIGHT", "HOUSE", "TRAIN", "PLANT", "WORDS", "AUDIO", "FLAME", "WATER", "CANDY", "SMILE", "GHOST", "PIANO", "SPACE", "BLOCK", "CLOUD", "STORM", "DREAM", "CRANE", "FRUIT", "BRUSH", "SHARK", "SHIRT", "MIGHT", "CLEAR", "MUSIC"];
+
+        let wordList = new Set(FALLBACK_WORDS);
+        let targetWord = "";
+        let guesses = [];
+        let currentGuess = "";
+        let undosRemaining = 5;
+        let gameState = 'playing';
+
+        window.onload = async () => {
+            setAppHeight();
+            initGrid();
+            initKeyboard();
+            await syncWordlist();
+            document.getElementById('loading-screen').style.opacity = '0';
+            setTimeout(() => document.getElementById('loading-screen').remove(), 500);
+        };
+
+        function setAppHeight() {
+            document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+        }
+        window.addEventListener('resize', setAppHeight);
+
+        async function syncWordlist() {
+            try {
+                const res = await fetch("https://raw.githubusercontent.com/tabatkins/wordle-list/main/words");
+                if (res.ok) {
+                    const text = await res.text();
+                    const fetched = text.split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length === 5);
+                    if (fetched.length > 500) wordList = new Set(fetched);
+                }
+            } catch (e) {}
+            resetGame();
+        }
+
+        function initGrid() {
+            const grid = document.getElementById('game-grid');
+            grid.innerHTML = '';
+            for (let i = 0; i < 6; i++) {
+                const row = document.createElement('div');
+                row.className = 'flex gap-2 w-full justify-center';
+                for (let j = 0; j < 5; j++) {
+                    const cell = document.createElement('div');
+                    cell.id = `cell-${i}-${j}`;
+                    cell.className = 'flex-1 border-2 border-zinc-900 bg-zinc-950 flex items-center justify-center text-2xl font-black uppercase word-grid-cell rounded-lg';
+                    row.appendChild(cell);
+                }
+                grid.appendChild(row);
+            }
+        }
+
+        function initKeyboard() {
+            const rows = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+            const kb = document.getElementById('keyboard');
+            kb.innerHTML = '';
+            rows.forEach((row, i) => {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'flex justify-center gap-1.5 w-full';
+                if (i === 2) rowDiv.appendChild(createKey('ENT', 'flex-[1.5] bg-blue-600 text-white text-[11px]'));
+                row.split('').forEach(key => rowDiv.appendChild(createKey(key, 'flex-1 bg-zinc-800 text-sm')));
+                if (i === 2) rowDiv.appendChild(createKey('DEL', 'flex-1 bg-zinc-700 text-[11px]'));
+                kb.appendChild(rowDiv);
+            });
+        }
+
+        function createKey(label, classes) {
+            const btn = document.createElement('button');
+            btn.textContent = label;
+            btn.id = label.length === 1 ? `key-${label}` : `key-spec-${label}`;
+            btn.className = `${classes} h-[60px] rounded-xl font-black active:scale-90 transition-all key-btn uppercase shadow-md`;
+            btn.onclick = () => handleInput(label === 'DEL' ? 'BACKSPACE' : label === 'ENT' ? 'ENTER' : label);
+            return btn;
+        }
+
+        function handleInput(key) {
+            if (gameState !== 'playing') return;
+            if (key === 'BACKSPACE') {
+                if (currentGuess.length > 0) sfx.del();
+                currentGuess = currentGuess.slice(0, -1);
+            }
+            else if (key === 'ENTER') submitGuess();
+            else if (currentGuess.length < 5 && /^[A-Z]$/.test(key)) {
+                sfx.tap();
+                currentGuess += key;
+                const cell = document.getElementById(`cell-${guesses.length}-${currentGuess.length - 1}`);
+                cell.classList.add('cell-pop');
+                setTimeout(() => cell.classList.remove('cell-pop'), 100);
+            }
+            updateGrid();
+        }
+
+        function submitGuess() {
+            if (currentGuess.length !== 5) return;
+            const guess = currentGuess.toUpperCase();
+            
+            if (!wordList.has(guess)) { sfx.error(); showToast("Word not in registry"); return; }
+            
+            const forbidden = getForbiddenLetters();
+            for (let char of guess) { if (forbidden.has(char)) { sfx.error(); showToast(`Forbidden: ${char}`); return; } }
+            
+            for (let prev of guesses) {
+                for (let i = 0; i < 5; i++) {
+                    if (prev.feedback[i] === 'green' && guess[i] !== prev.word[i]) {
+                        sfx.error(); showToast(`Spot ${i+1} must be ${prev.word[i]}`); return;
+                    }
+                }
+            }
+
+            const yellowLetters = new Set();
+            guesses.forEach(g => g.feedback.forEach((fb, i) => { if(fb === 'yellow') yellowLetters.add(g.word[i]); }));
+            for (let char of yellowLetters) { if (!guess.includes(char)) { sfx.error(); showToast(`Missing required: ${char}`); return; } }
+
+            if (guess === targetWord) {
+                guesses.push({ word: guess, feedback: Array(5).fill('green') });
+                endGame('lost');
+                return;
+            }
+
+            sfx.submit();
+            guesses.push({ word: guess, feedback: calculateFeedback(guess, targetWord) });
+            currentGuess = "";
+            
+            if (guesses.length >= 6) endGame('won');
+            else {
+                updateGrid();
+                updateKeyboard();
+                updateStats();
+            }
+        }
+
+        function calculateFeedback(guess, target) {
+            const result = Array(5).fill('gray');
+            const tArr = target.split('');
+            const gArr = guess.split('');
+            for (let i = 0; i < 5; i++) { if (gArr[i] === tArr[i]) { result[i] = 'green'; tArr[i] = null; gArr[i] = null; } }
+            for (let i = 0; i < 5; i++) { if (gArr[i]) { const idx = tArr.indexOf(gArr[i]); if (idx !== -1) { result[i] = 'yellow'; tArr[idx] = null; } } }
+            return result;
+        }
+
+        function getForbiddenLetters() {
+            const forbidden = new Set();
+            const allowed = new Set();
+            guesses.forEach(g => g.feedback.forEach((fb, i) => { if (fb !== 'gray') allowed.add(g.word[i]); }));
+            guesses.forEach(g => g.feedback.forEach((fb, i) => { if (fb === 'gray' && !allowed.has(g.word[i])) forbidden.add(g.word[i]); }));
+            return forbidden;
+        }
+
+        function updateGrid() {
+            for (let i = 0; i < 6; i++) {
+                for (let j = 0; j < 5; j++) {
+                    const cell = document.getElementById(`cell-${i}-${j}`);
+                    const g = guesses[i];
+                    if (g) {
+                        cell.textContent = g.word[j];
+                        cell.className = `flex-1 border-2 flex items-center justify-center text-2xl font-black uppercase word-grid-cell rounded-lg ${getBg(g.feedback[j])}`;
+                    } else if (i === guesses.length) {
+                        const char = currentGuess[j] || "";
+                        cell.textContent = char;
+                        cell.className = `flex-1 border-2 flex items-center justify-center text-2xl font-black uppercase word-grid-cell rounded-lg ${char ? 'border-zinc-500 bg-zinc-900' : 'border-zinc-900 bg-zinc-950'}`;
+                    } else {
+                        cell.textContent = "";
+                        cell.className = 'flex-1 border-2 border-zinc-900 bg-zinc-950 flex items-center justify-center text-2xl font-black uppercase rounded-lg';
+                    }
+                }
+            }
+        }
+
+        function getBg(fb) {
+            if (fb === 'green') return 'bg-green-600 border-green-600';
+            if (fb === 'yellow') return 'bg-yellow-500 border-yellow-500';
+            return 'bg-zinc-800 border-zinc-800 text-zinc-500';
+        }
+
+        function updateStats() {
+            const forbidden = getForbiddenLetters();
+            const count = Array.from(wordList).filter(w => {
+                if (guesses.some(g => g.word === w)) return false;
+                for(let char of w) if(forbidden.has(char)) return false;
+                for(let p of guesses) {
+                    for(let i=0; i<5; i++) {
+                        if(p.feedback[i] === 'green' && w[i] !== p.word[i]) return false;
+                        if(p.feedback[i] === 'yellow' && (!w.includes(p.word[i]) || w[i] === p.word[i])) return false;
+                    }
+                }
+                return true;
+            }).length;
+            document.getElementById('safe-count').textContent = count;
+            document.getElementById('attempt-count').textContent = guesses.length + 1;
+            document.getElementById('undo-count').textContent = undosRemaining;
+        }
+
+        function updateKeyboard() {
+            const forbidden = getForbiddenLetters();
+            document.querySelectorAll('.key-btn').forEach(btn => {
+                const char = btn.textContent;
+                if(char.length === 1) {
+                    btn.classList.remove('key-forbidden');
+                    btn.style.backgroundColor = '';
+                    if(forbidden.has(char)) btn.classList.add('key-forbidden');
+                }
+            });
+            guesses.forEach(g => {
+                g.word.split('').forEach((char, i) => {
+                    const btn = document.getElementById(`key-${char}`);
+                    if(!btn) return;
+                    if(g.feedback[i] === 'green') btn.style.backgroundColor = '#16a34a';
+                    else if(g.feedback[i] === 'yellow' && btn.style.backgroundColor !== 'rgb(22, 163, 74)') btn.style.backgroundColor = '#eab308';
+                });
+            });
+        }
+
+        function endGame(res) {
+            gameState = res;
+            updateGrid();
+            res === 'won' ? sfx.win() : sfx.lose();
+            const modal = document.getElementById('game-over-modal');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            const title = document.getElementById('end-title');
+            title.textContent = res === 'won' ? 'SURVIVED' : 'WORDLED';
+            title.className = `text-7xl font-black italic mb-2 tracking-tighter ${res === 'won' ? 'text-green-500' : 'text-red-500'}`;
+            document.getElementById('end-target').textContent = targetWord;
+            document.getElementById('undo-end-btn').classList.toggle('hidden', undosRemaining === 0 || res === 'won');
+        }
+
+        function undoAtEnd() {
+            if (undosRemaining > 0) {
+                sfx.tap();
+                guesses.pop();
+                undosRemaining--;
+                gameState = 'playing';
+                document.getElementById('game-over-modal').classList.add('hidden');
+                updateGrid();
+                updateKeyboard();
+                updateStats();
+            }
+        }
+
+        function resetGame() {
+            const arr = Array.from(wordList);
+            targetWord = arr[Math.floor(Math.random() * arr.length)];
+            guesses = []; currentGuess = ""; gameState = 'playing'; undosRemaining = 5;
+            document.getElementById('game-over-modal').classList.add('hidden');
+            initGrid(); initKeyboard(); updateStats();
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.remove('hidden');
+            document.getElementById('game-grid').classList.add('shake');
+            setTimeout(() => {
+                t.classList.add('hidden');
+                document.getElementById('game-grid').classList.remove('shake');
+            }, 1500);
+        }
+
+        function toggleHelp() { document.getElementById('help-modal').classList.toggle('hidden'); }
+    </script>
+</body>
+</html>
+
+```
